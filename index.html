@@ -678,14 +678,73 @@ a{text-decoration:none;color:inherit;}
   box-shadow:0 4px 14px rgba(123,31,162,0.3);
 }
 .gallery-grid{
-  display:grid;grid-template-columns:repeat(4,1fr);gap:14px;
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:14px;
 }
 .gal-item{
-  border-radius:16px;overflow:hidden;aspect-ratio:1;
-  cursor:pointer;position:relative;
-  transition:transform .3s;
+  border-radius:16px;
+  overflow:hidden;
+  aspect-ratio:1;
+  cursor:pointer;
+  position:relative;
+  transition:transform .3s, box-shadow .3s;
+  background:#F3E5FF;
+  box-shadow:0 4px 14px rgba(0,0,0,0.08);
 }
-.gal-item:hover{transform:scale(1.04) rotate(-1deg);}
+.gal-item:hover{
+  transform:scale(1.04);
+  box-shadow:0 8px 28px rgba(123,31,162,0.2);
+}
+/* Image fills the square perfectly */
+.gal-item img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  object-position:center top;
+  display:block;
+  transition:transform .4s;
+}
+.gal-item:hover img{
+  transform:scale(1.08);
+}
+/* Hover overlay with caption */
+.gallery-overlay{
+  position:absolute;
+  bottom:0;left:0;right:0;
+  background:linear-gradient(transparent,rgba(74,20,140,0.88));
+  color:white;
+  padding:28px 12px 12px;
+  transform:translateY(100%);
+  transition:transform .35s ease;
+}
+.gal-item:hover .gallery-overlay{
+  transform:translateY(0);
+}
+.gallery-overlay h4{
+  font-family:'Bubblegum Sans',cursive;
+  font-size:14px;
+  margin-bottom:2px;
+}
+.gallery-overlay p{
+  font-size:11px;
+  opacity:0.85;
+  font-weight:600;
+  margin:0;
+}
+/* Fallback placeholder */
+.gal-placeholder-fb{
+  width:100%;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:48px;
+  background:linear-gradient(135deg,#F3E5FF,#EDE7FF);
+}
+@media(max-width:900px){
+  .gallery-grid{grid-template-columns:repeat(3,1fr);}
+}
+@media(max-width:600px){
+  .gallery-grid{grid-template-columns:repeat(2,1fr);gap:10px;}
+}
 .gal-placeholder{
   width:100%;height:100%;
   display:flex;flex-direction:column;
@@ -2442,6 +2501,77 @@ if (document.getElementById('tab-gallery') &&
     document.getElementById('tab-gallery').classList.contains('active')) {
   loadGallery();
 }
+
+/* ══ DYNAMIC GALLERY — loads from gallery-index.json ══ */
+let allGalleryItems = [];
+
+async function loadGallery() {
+  const grid    = document.getElementById('galleryGrid');
+  const loading = document.getElementById('gallery-loading');
+  if (!grid) return;
+
+  try {
+    const res  = await fetch('gallery-index.json?v=' + Date.now());
+    if (!res.ok) throw new Error('not found');
+    const data = await res.json();
+    allGalleryItems = data.photos || [];
+    if (loading) loading.style.display = 'none';
+    renderGallery('all');
+  } catch(e) {
+    if (loading) loading.innerHTML =
+      '<div style="font-size:36px;margin-bottom:8px;">📷</div>' +
+      '<div style="font-family:\'Bubblegum Sans\',cursive;color:#AB47BC;font-size:1rem;">Photos coming soon! 🌈</div>';
+  }
+}
+
+function renderGallery(cat) {
+  const grid  = document.getElementById('galleryGrid');
+  const empty = document.getElementById('gallery-empty');
+  if (!grid) return;
+
+  const list = cat === 'all'
+    ? allGalleryItems
+    : allGalleryItems.filter(p => p.cat === cat);
+
+  if (list.length === 0) {
+    grid.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  grid.innerHTML = list.map(photo => `
+    <div class="gal-item" data-cat="${photo.cat}">
+      <img
+        src="images/gallery/${photo.file}"
+        alt="${photo.title} — Rainbow Pre-School"
+        loading="lazy"
+        style="opacity:0;transition:opacity .5s;"
+        onload="this.style.opacity=1"
+        onerror="this.style.display='none';
+                 this.nextElementSibling.style.display='flex';
+                 this.parentElement.querySelector('.gallery-overlay').style.display='none';"
+      />
+      <div class="gal-placeholder-fb" style="display:none;">📸</div>
+      <div class="gallery-overlay">
+        <h4>${photo.title}</h4>
+        <p>${photo.desc || ''}</p>
+      </div>
+    </div>`).join('');
+}
+
+function filterGallery(cat, btn) {
+  document.querySelectorAll('.gal-filter').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderGallery(cat);
+}
+
+const _origShowTab = showTab;
+showTab = function(id) {
+  _origShowTab(id);
+  if (id === 'gallery' && allGalleryItems.length === 0) loadGallery();
+};
+
 
 </script>
 </body>

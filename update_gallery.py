@@ -1,169 +1,129 @@
 #!/usr/bin/env python3
 """
-🌈 Rainbow Pre-School — Gallery Auto-Builder
-============================================
-Run this script from Git Bash whenever you add new photos:
- 
+Rainbow Pre-School — Gallery Auto-Builder
+==========================================
+Run this after adding new photos to images/gallery/:
+
     python update_gallery.py
- 
-It scans images/gallery/ and rebuilds gallery-index.json automatically.
-Then push to GitHub and the website updates within 2 minutes!
+
+Handles ANY filenames: image-1.jpg, photo-1.jpg, diwali.jpg etc.
+Auto-assigns categories from filename keywords.
 """
- 
-import os
-import json
-import re
+
+import os, json, re
 from pathlib import Path
- 
-# ── Settings ──────────────────────────────────────────────
-GALLERY_DIR  = "images/gallery"
-OUTPUT_FILE  = "gallery-index.json"
-IMAGE_EXTS   = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
- 
-# ── Category detection from filename ──────────────────────
-# File name keywords → category for filter tabs
+
+GALLERY_DIR = "images/gallery"
+OUTPUT_FILE = "gallery-index.json"
+IMAGE_EXTS  = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+# Category keywords — checks if any word appears in filename
 CATEGORY_MAP = {
-    "classroom":       "classroom",
-    "class":           "classroom",
-    "room":            "classroom",
-    "learning":        "classroom",
-    "corner":          "classroom",
-    "activity":        "activities",
-    "activities":      "activities",
-    "art":             "activities",
-    "craft":           "activities",
-    "draw":            "activities",
-    "paint":           "activities",
-    "sanskrit":        "activities",
-    "music":           "activities",
-    "rhyme":           "activities",
-    "rhymes":          "activities",
-    "outdoor":         "activities",
-    "nature":          "activities",
-    "sport":           "sports",
-    "sports":          "sports",
-    "game":            "sports",
-    "games":           "sports",
-    "run":             "sports",
-    "play":            "activities",
-    "event":           "events",
-    "events":          "events",
-    "annual":          "events",
-    "function":        "events",
-    "ev-hall":         "events",
-    "evhall":          "events",
-    "hall":            "events",
-    "stage":           "events",
-    "saturday":        "saturday",
-    "funday":          "saturday",
-    "fun-day":         "saturday",
-    "fun_day":         "saturday",
-    "festival":        "festival",
-    "diwali":          "festival",
-    "holi":            "festival",
-    "ganesh":          "festival",
-    "republic":        "festival",
-    "independence":    "festival",
-    "christmas":       "festival",
-    "birthday":        "festival",
-    "celebration":     "festival",
-    "team":            "team",
-    "teacher":         "team",
-    "staff":           "team",
-    "principal":       "team",
+    "classroom":  ["classroom","class","room","learning","corner","table","board"],
+    "activities": ["activity","art","craft","draw","paint","sanskrit","music",
+                   "rhyme","outdoor","nature","play","dance","sing"],
+    "events":     ["event","annual","function","evhall","ev-hall","hall",
+                   "stage","programme","program","concert"],
+    "saturday":   ["saturday","funday","fun-day","fun_day","weekend"],
+    "festival":   ["diwali","holi","ganesh","republic","independence",
+                   "christmas","birthday","celebration","festival","navratri"],
+    "sports":     ["sport","sports","game","games","run","race","field","jump"],
+    "team":       ["teacher","staff","principal","team","faculty"],
 }
- 
-def filename_to_title(filename):
-    """Convert filename like 'art-craft-day.jpg' → 'Art Craft Day'"""
-    stem = Path(filename).stem          # remove extension
-    stem = re.sub(r'[-_]', ' ', stem)  # hyphens/underscores → space
-    stem = re.sub(r'\d+$', '', stem)   # remove trailing numbers
-    return stem.strip().title()
- 
+
 def detect_category(filename):
-    """Detect category from keywords in filename"""
     lower = filename.lower()
-    for keyword, cat in CATEGORY_MAP.items():
-        if keyword in lower:
+    for cat, keywords in CATEGORY_MAP.items():
+        if any(kw in lower for kw in keywords):
             return cat
-    return "activities"  # default category
- 
-def scan_gallery():
-    """Scan gallery folder and return list of photo objects"""
+    return "activities"  # default
+
+def make_title(filename, index):
+    stem = Path(filename).stem
+    # If it's just image-N or photo-N, use "Photo N"
+    if re.match(r"^(image|img|photo|pic|picture)[-_]?\d+$", stem, re.IGNORECASE):
+        num = re.search(r"\d+", stem).group()
+        return f"Photo {num}"
+    # Otherwise clean up the filename
+    clean = re.sub(r"[-_]", " ", stem)
+    clean = re.sub(r"\d+$", "", clean).strip()
+    return clean.title() if clean else f"Photo {index+1}"
+
+def make_desc(cat):
+    descs = {
+        "classroom":  "Inside our AC classroom",
+        "activities": "Learning through fun activities",
+        "events":     "School events & performances",
+        "saturday":   "Saturday FunDay special!",
+        "festival":   "Festival celebrations",
+        "sports":     "Sports & outdoor activities",
+        "team":       "Our wonderful team",
+    }
+    return descs.get(cat, "Rainbow Pre-School moments")
+
+def scan_and_build():
     gallery_path = Path(GALLERY_DIR)
- 
     if not gallery_path.exists():
-        print(f"⚠️  Folder not found: {GALLERY_DIR}")
-        print(f"   Creating it now...")
         gallery_path.mkdir(parents=True, exist_ok=True)
-        print(f"   ✅ Created: {GALLERY_DIR}")
+        print(f"Created folder: {GALLERY_DIR}")
         return []
- 
+
+    # Get all images, sort naturally (image-1, image-2 ... image-10, not image-10 before image-2)
+    files = sorted(
+        [f for f in gallery_path.iterdir() if f.suffix.lower() in IMAGE_EXTS],
+        key=lambda f: [int(c) if c.isdigit() else c.lower()
+                       for c in re.split(r"(\d+)", f.name)]
+    )
+
     photos = []
     skipped = []
- 
-    for f in sorted(gallery_path.iterdir()):
-        if f.suffix.lower() in IMAGE_EXTS:
-            size_kb = f.stat().st_size // 1024
-            if size_kb > 2048:
-                skipped.append(f"{f.name} ({size_kb}KB — too large, compress at squoosh.app)")
-                continue
-            photos.append({
-                "file":  f.name,
-                "title": filename_to_title(f.name),
-                "cat":   detect_category(f.name),
-                "desc":  ""   # optional: you can manually add descriptions
-            })
-            print(f"  ✅ {f.name:<40} → category: {detect_category(f.name)}")
- 
+    for i, f in enumerate(files):
+        size_kb = f.stat().st_size // 1024
+        if size_kb > 3000:
+            skipped.append(f"{f.name} ({size_kb}KB) — compress at squoosh.app")
+            continue
+        cat = detect_category(f.name)
+        photos.append({
+            "file":  f.name,
+            "title": make_title(f.name, i),
+            "cat":   cat,
+            "desc":  make_desc(cat)
+        })
+        print(f"  ✅  {f.name:<35} → {cat}")
+
     if skipped:
-        print(f"\n⚠️  Skipped (too large — please compress these at squoosh.app):")
-        for s in skipped:
-            print(f"   ❌ {s}")
- 
+        print("\n⚠️  Too large (skipped):")
+        for s in skipped: print(f"     ❌ {s}")
+
     return photos
- 
-def write_json(photos):
-    """Write gallery-index.json"""
-    data = {
-        "total":  len(photos),
-        "photos": photos
-    }
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    print(f"\n✅ Written: {OUTPUT_FILE} ({len(photos)} photos)")
- 
+
 def main():
     print("=" * 55)
     print("🌈 Rainbow Pre-School — Gallery Builder")
     print("=" * 55)
     print(f"\nScanning: {GALLERY_DIR}/\n")
- 
-    photos = scan_gallery()
- 
-    if not photos:
-        print("\n⚠️  No images found in images/gallery/")
-        print("   Add .jpg/.png/.webp photos to that folder and run again.")
-        # Still write empty JSON so website doesn't error
-        write_json([])
-    else:
-        write_json(photos)
- 
-        # Summary by category
+
+    photos = scan_and_build()
+
+    data = {"total": len(photos), "photos": photos}
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    print(f"\n✅  gallery-index.json updated — {len(photos)} photo(s)")
+
+    if photos:
         cats = {}
-        for p in photos:
-            cats[p["cat"]] = cats.get(p["cat"], 0) + 1
+        for p in photos: cats[p["cat"]] = cats.get(p["cat"],0)+1
         print("\nCategory breakdown:")
-        for cat, count in sorted(cats.items()):
-            print(f"   {cat:<15} {count} photo{'s' if count>1 else ''}")
- 
+        for c,n in sorted(cats.items()): print(f"   {c:<15} {n} photo(s)")
+
     print("\n" + "=" * 55)
-    print("NEXT STEPS:")
-    print("  1. git add .")
-    print('  2. git commit -m "Updated gallery photos"')
-    print("  3. git push")
-    print("  ✅ Website updates in ~2 minutes!")
+    print("NEXT: push to GitHub")
+    print("  git add .")
+    print("  git commit -m \"Updated gallery photos\"")
+    print("  git push")
+    print("✅  Site updates in ~2 minutes!")
     print("=" * 55)
- 
+
 if __name__ == "__main__":
     main()
